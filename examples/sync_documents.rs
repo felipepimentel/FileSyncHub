@@ -1,75 +1,41 @@
 use anyhow::Result;
 use bytes::Bytes;
-use filesynchub::plugins::{google_drive::GoogleDrivePlugin, onedrive::OneDrivePlugin, Plugin};
-use std::{path::Path, time::Duration};
+use filesynchub::plugins::{google_drive::GoogleDriveClient, onedrive::OneDrivePlugin, Plugin};
+use std::path::PathBuf;
 use tokio::fs;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Create plugins
-    let google_drive = GoogleDrivePlugin::new("FileSyncHub/Documents".to_string());
-    let onedrive = OneDrivePlugin::new("FileSyncHub/Documents".to_string());
+    // Initialize plugins
+    let google_drive = GoogleDriveClient::new("Documents".to_string()).await?;
+    let onedrive = OneDrivePlugin::new("Documents".to_string());
 
-    // Test connections
-    println!("Testing connections...");
-    google_drive.test_connection().await?;
-    onedrive.test_connection().await?;
-    println!("Connections successful!");
+    // Create test directory
+    let test_dir = PathBuf::from("test_documents");
+    fs::create_dir_all(&test_dir).await?;
 
-    // Create test documents
-    let docs_dir = Path::new("test_documents");
-    fs::create_dir_all(docs_dir).await?;
+    // Create some test files
+    let files = vec!["doc1.txt", "doc2.txt", "doc3.txt"];
+    for (i, file) in files.iter().enumerate() {
+        let file_path = test_dir.join(file);
+        fs::write(&file_path, format!("Document {}", i + 1)).await?;
 
-    // Create a text document
-    let text_file = docs_dir.join("notes.txt");
-    let text_content = "Important notes from FileSyncHub!";
-    fs::write(&text_file, text_content).await?;
+        // Upload to Google Drive
+        println!("Uploading {} to Google Drive...", file);
+        google_drive
+            .upload_chunk(&file_path, Bytes::from(format!("Document {}", i + 1)), 0)
+            .await?;
 
-    // Create a markdown document
-    let md_file = docs_dir.join("readme.md");
-    let md_content = "# FileSyncHub Test\n\nThis is a test markdown file.";
-    fs::write(&md_file, md_content).await?;
-
-    // Sync text document to Google Drive
-    println!("Syncing text document to Google Drive...");
-    google_drive
-        .upload_chunk(&text_file, Bytes::from(text_content), 0)
-        .await?;
-    println!("Text document synced to Google Drive!");
-
-    // Sync markdown document to OneDrive
-    println!("Syncing markdown document to OneDrive...");
-    onedrive
-        .upload_chunk(&md_file, Bytes::from(md_content), 0)
-        .await?;
-    println!("Markdown document synced to OneDrive!");
-
-    // Wait a moment
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // Download and verify documents
-    println!("Verifying documents...");
-
-    // Verify Google Drive document
-    let downloaded_text = google_drive
-        .download_chunk("notes.txt", 0, text_content.len())
-        .await?;
-    assert_eq!(downloaded_text, Bytes::from(text_content));
-    println!("Google Drive document verified!");
-
-    // Verify OneDrive document
-    let downloaded_md = onedrive
-        .download_chunk("readme.md", 0, md_content.len())
-        .await?;
-    assert_eq!(downloaded_md, Bytes::from(md_content));
-    println!("OneDrive document verified!");
+        // Upload to OneDrive
+        println!("Uploading {} to OneDrive...", file);
+        onedrive
+            .upload_chunk(&file_path, Bytes::from(format!("Document {}", i + 1)), 0)
+            .await?;
+    }
 
     // Clean up
-    println!("Cleaning up...");
-    google_drive.delete_file(&text_file).await?;
-    onedrive.delete_file(&md_file).await?;
-    fs::remove_dir_all(docs_dir).await?;
-    println!("Cleanup complete!");
+    fs::remove_dir_all(test_dir).await?;
+    println!("Sync completed successfully!");
 
     Ok(())
 }

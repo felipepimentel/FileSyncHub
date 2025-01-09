@@ -4,6 +4,10 @@ use google_drive::{Client as DriveClient, traits::FileOps};
 use bytes::Bytes;
 use async_trait::async_trait;
 use super::Plugin;
+use tokio::time::timeout;
+use std::time::Duration;
+
+const AUTH_TIMEOUT_SECS: u64 = 60;
 
 pub struct GoogleDriveClient {
     client: Option<DriveClient>,
@@ -94,8 +98,19 @@ impl GoogleDriveClient {
             client: None,
             root_folder,
         };
-        client.authenticate().await?;
-        Ok(client)
+
+        match timeout(Duration::from_secs(AUTH_TIMEOUT_SECS), client.authenticate()).await {
+            Ok(result) => {
+                result?;
+                Ok(client)
+            }
+            Err(_) => {
+                Err(anyhow::anyhow!(
+                    "Authentication timed out after {} seconds. Please try again.",
+                    AUTH_TIMEOUT_SECS
+                ))
+            }
+        }
     }
 
     async fn authenticate(&mut self) -> anyhow::Result<()> {
@@ -104,6 +119,7 @@ impl GoogleDriveClient {
         }
 
         let secret = yup_oauth2::read_application_secret("credentials/google_drive.json").await?;
+        
         let auth = InstalledFlowAuthenticator::builder(
             secret.clone(),
             InstalledFlowReturnMethod::HTTPRedirect,
@@ -111,17 +127,26 @@ impl GoogleDriveClient {
         .build()
         .await?;
 
-        let token = auth.token(&["https://www.googleapis.com/auth/drive.file"]).await?;
+        let token_future = auth.token(&["https://www.googleapis.com/auth/drive.file"]);
+        let ctrl_c = tokio::signal::ctrl_c();
+        
+        tokio::select! {
+            token_result = token_future => {
+                let token = token_result?;
+                let client = DriveClient::new(
+                    secret.client_id,
+                    secret.client_secret,
+                    "http://localhost:8080".to_string(),
+                    token.token().unwrap_or_default().to_string(),
+                    "".to_string(),
+                );
 
-        let client = DriveClient::new(
-            secret.client_id,
-            secret.client_secret,
-            "http://localhost:8080".to_string(),
-            token.token().unwrap_or_default().to_string(),
-            "".to_string(), // We don't need refresh token for this implementation
-        );
-
-        self.client = Some(client);
-        Ok(())
+                self.client = Some(client);
+                Ok(())
+            }
+            _ = ctrl_c => {
+                Err(anyhow::anyhow!("Authentication cancelled by user"))
+            }
+        }
     }
 }

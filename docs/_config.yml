@@ -1,0 +1,72 @@
+title: FileSyncHub
+description: A powerful file synchronization tool for cloud storage services
+theme: jekyll-theme-cayman
+
+# Site settings
+url: "https://yourusername.github.io"
+baseurl: "/FileSyncHub"
+repository: yourusername/FileSyncHub
+
+# Theme settings
+show_downloads: true
+google_analytics: # Add your Google Analytics tracking ID
+
+# Navigation
+nav:
+  - title: Home
+    url: /
+  - title: User Guide
+    url: /user-guide/
+  - title: API Docs
+    url: /api/
+  - title: Examples
+    url: /examples/
+  - title: Contributing
+    url: /contributing/
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-github-metadata
+
+# Exclude files
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+  - .git
+  - .github
+  - CONTRIBUTING.md
+  - README.md
+  - LICENSE
+
+# Collections
+collections:
+  docs:
+    output: true
+    permalink: /:collection/:path/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "default"
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "doc"
+      sidebar: true
+
+# Custom variables
+version: "0.1.0"
+rust_version: "1.70.0"
+min_rust_version: "1.70.0"
+github_username: yourusername 
