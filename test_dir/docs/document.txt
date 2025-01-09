@@ -1,0 +1,4 @@
+This is a sample text document for testing FileSyncHub.
+It will be synchronized with configured cloud storage providers.
+
+Feel free to modify this file to test the synchronization functionality. 

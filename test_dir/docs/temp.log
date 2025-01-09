@@ -1,0 +1,3 @@
+[2024-01-09 12:00:00] Test log entry
+[2024-01-09 12:00:01] This file should not be synchronized
+[2024-01-09 12:00:02] It matches the exclude pattern in config.toml 

@@ -1,0 +1,57 @@
+[package]
+name = "filesynchub"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felipe Pimentel <felipe.pimentel@gmail.com>"]
+description = "A file synchronization hub with support for Google Drive and OneDrive"
+license = "Apache-2.0"
+repository = "https://github.com/felipepimentel/FileSyncHub"
+documentation = "https://github.com/felipepimentel/FileSyncHub/blob/main/README.md"
+readme = "README.md"
+keywords = ["sync", "cloud", "google-drive", "onedrive", "file-sync"]
+categories = ["filesystem", "command-line-utilities"]
+
+[lib]
+name = "filesynchub"
+path = "src/lib.rs"
+
+[[bin]]
+name = "filesynchub-cli"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+anyhow = "1.0"
+async-trait = "0.1"
+notify = "7.0.0"
+notify-debouncer-mini = "0.5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+bytes = "1.5"
+reqwest = { version = "0.12.12", features = ["json", "rustls-tls"] }
+ratatui = "0.29.0"
+crossterm = "0.28.1"
+indicatif = "0.17"
+google-drive = "0.7.0"
+hyper = { version = "1.5.2", features = ["full"] }
+hyper-rustls = { version = "0.27.5", features = ["http2", "native-tokio"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = "0.3"
+tempfile = "3.8"
+log = "0.4"
+env_logger = "0.11.6"
+thiserror = "2.0.10"
+time = { version = "0.3", features = ["formatting"] }
+sha2 = "0.10"
+lru = "0.12"
+daemonize = "0.5"
+libc = "0.2"
+clap = { version = "4.4", features = ["derive"] }
+futures = "0.3"
+yup-oauth2 = { version = "11.0.0", features = ["hyper-rustls"] }
+oauth2 = { version = "4.4", features = ["reqwest"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio-test = "0.4"

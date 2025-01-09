@@ -1,0 +1,4 @@
+This is a sample text file for testing FileSyncHub.
+It will be used to test file monitoring and synchronization.
+
+Feel free to modify this file to see the synchronization in action. 

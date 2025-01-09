@@ -1,0 +1,20 @@
+[general]
+log_level = "info"
+
+[[watch_dirs]]
+path = "./test_dir"
+recursive = true
+include = ["*.txt", "*.md", "*.pdf"]
+exclude = ["*.tmp", "*.log"]
+
+[plugins.google_drive]
+credentials_path = "./credentials/google_drive.json"
+folder_id = "your_google_drive_folder_id"
+include = ["*.txt", "*.md", "*.pdf"]
+exclude = ["*.tmp", "*.log"]
+
+[plugins.onedrive]
+credentials_path = "./credentials/onedrive.json"
+folder_id = "your_onedrive_folder_id"
+include = ["*.txt", "*.md", "*.pdf"]
+exclude = ["*.tmp", "*.log"]
