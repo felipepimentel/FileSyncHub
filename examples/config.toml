@@ -1,0 +1,28 @@
+# Exemplo de configuração com múltiplos provedores
+
+[[providers]]
+name = "googledrive-main"
+enabled = true
+credentials = { type = "GoogleDrive", client_id = "seu_client_id", client_secret = "seu_client_secret" }
+mappings = [
+    { local_path = "/home/pimentel/pasta_para_sync", remote_path = "/pasta_para_sync" },
+    { local_path = "/home/pimentel/pasta2", remote_path = "/pasta2" },
+]
+
+[[providers]]
+name = "onedrive-documentos"
+enabled = true
+credentials = { type = "OneDrive", client_id = "seu_client_id", client_secret = "seu_client_secret" }
+mappings = [
+    { local_path = "/home/pimentel/documentos", remote_path = "/documentos" },
+    { local_path = "/home/pimentel/fotos", remote_path = "/fotos_backup" },
+]
+
+# Você pode ter múltiplas instâncias do mesmo provedor
+[[providers]]
+name = "googledrive-trabalho"
+enabled = true
+credentials = { type = "GoogleDrive", client_id = "outro_client_id", client_secret = "outro_client_secret" }
+mappings = [
+    { local_path = "/home/pimentel/trabalho", remote_path = "/trabalho" },
+]

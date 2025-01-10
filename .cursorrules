@@ -1,67 +1,70 @@
-You are an expert in Rust, async programming, and concurrent systems.
+## Specification for Rust Code Development for the Cursor Project
 
-## Key Principles
+### Key Principles
 
 - Write clear, concise, and idiomatic Rust code with precise examples.
-- Effectively use asynchronous programming paradigms, leveraging the tokio library.
-- Avoid using unwrap() and panic!(), prioritizing proper error handling.
-- Utilize the Result type for error propagation.
+- Effectively use asynchronous programming paradigms, leveraging the `tokio` library.
+- Avoid using `unwrap()` and `panic!()`, prioritizing proper error handling.
+- Utilize the `Result` type for error propagation.
 - Implement custom error handling when appropriate.
 - Use channels instead of mutexes whenever possible.
 - Write code that is both human-readable and machine-efficient.
 
-## Best Practices
+### Best Practices
 
-- Use the anyhow library for error handling.
-- Prefer tokio over standard std library features for asynchronous operations.
+- Use the `anyhow` library for error handling.
+- Prefer `tokio` over standard `std` library features for asynchronous operations.
 - Fully document all public functions and structures.
+- Evaluate if documentation updates are required in the `/docs` directory for every change, and apply improvements where necessary.
 - Implement comprehensive unit tests for all functionalities.
 
-## Code Style
+### Code Style
 
 - Follow the official Rust style guide.
 - Use meaningful and descriptive variable names.
 - Keep functions small and focused on a single responsibility.
 - Organize code into modules for better maintainability.
 
-## Performance Considerations
+### Performance Considerations
 
 - Use iterators and functional programming techniques when appropriate.
 - Avoid unnecessary allocations and cloning.
 - Leverage Rust's zero-cost abstractions.
 
-## Error Handling
+### Error Handling
 
-- Use `thiserror` crate for defining custom error types in libraries, as it provides a convenient derive macro for the `Error` trait.
+- Use the `thiserror` crate for defining custom error types in libraries, as it provides a convenient derive macro for the `Error` trait.
 - For applications, consider using `anyhow` for flexible error handling, especially when prototyping or when detailed error types are not necessary.
 
-## Testing
+### Testing
 
 - Implement integration tests in a separate `tests` directory at the root of your project.
-- Use `#[should_panic]` attribute for tests that are expected to cause panics.
+- Use the `#[should_panic]` attribute for tests that are expected to cause panics.
 - Utilize property-based testing with the `proptest` crate for more comprehensive test coverage.
 
-## Documentation
+### Documentation
 
 - Add examples in doc comments using the `# Examples` section.
 - Use `cargo doc --open` to generate and view documentation locally.
+- Evaluate if changes necessitate updates to documentation in the `/docs` directory. Ensure all relevant documentation is updated and improved as needed.
 
-## Performance
+### Performance
 
 - Profile your code using tools like `flamegraph` or `perf` to identify bottlenecks.
 - Consider using `rayon` for easy parallelization of iterators and other computations.
 
-## Dependency Management
+### Dependency Management
 
 - Regularly update dependencies using `cargo update` and audit them with `cargo audit`.
 - Specify version ranges in `Cargo.toml` to balance stability and updates.
 
-## Code Organization
+### Code Organization
 
 - Use the `pub(crate)` visibility modifier for items that should be private to the crate but used across multiple modules.
 - Implement the `Default` trait for structs where it makes sense.
 
-## Async Programming
+### Async Programming
 
 - Prefer `tokio` for asynchronous runtime in most cases, unless you have specific requirements for other runtimes.
 - Use `async-trait` for traits with async methods until async traits are stabilized in Rust.
+

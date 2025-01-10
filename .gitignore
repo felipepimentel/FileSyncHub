@@ -20,5 +20,17 @@ Cargo.lock
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Logs
 ngrok.log
 server.log
+
+# Sensitive files
+.env
+.env.*
+credentials/
+*.pem
+*.key
+*.crt
+config.local.toml
+secrets.toml
+token.json

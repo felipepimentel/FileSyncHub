@@ -1,121 +1,211 @@
 use anyhow::Result;
-use filesynchub::{
-    config::Config,
-    plugins::{google_drive::GoogleDriveClient, onedrive::OneDrivePlugin, PluginManager},
-    service::Service,
-    tui::{app::App, Tui},
-};
-use std::sync::Arc;
+use clap::{Parser, Subcommand};
+use filesync::{Config, SyncService};
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Inicia o serviço de sincronização
+    Start,
+
+    /// Adiciona um novo provedor
+    AddProvider {
+        /// Nome do provedor (ex: googledrive-main)
+        name: String,
+        /// Tipo do provedor (googledrive ou onedrive)
+        #[arg(value_enum)]
+        provider_type: ProviderType,
+        /// Client ID do provedor
+        client_id: String,
+        /// Client Secret do provedor
+        client_secret: String,
+    },
+
+    /// Adiciona um novo mapeamento de pasta para um provedor
+    AddMapping {
+        /// Nome do provedor
+        provider: String,
+        /// Caminho local para sincronizar
+        local_path: PathBuf,
+        /// Caminho remoto no provedor
+        remote_path: String,
+    },
+
+    /// Lista todos os provedores configurados
+    ListProviders,
+
+    /// Lista todos os mapeamentos de um provedor
+    ListMappings {
+        /// Nome do provedor
+        provider: String,
+    },
+
+    /// Remove um provedor
+    RemoveProvider {
+        /// Nome do provedor
+        name: String,
+    },
+
+    /// Remove um mapeamento de pasta
+    RemoveMapping {
+        /// Nome do provedor
+        provider: String,
+        /// Caminho local do mapeamento
+        local_path: PathBuf,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone)]
+enum ProviderType {
+    GoogleDrive,
+    OneDrive,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logger
     env_logger::init();
+    let cli = Cli::parse();
 
-    // Parse command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: {} <command> [options]", args[0]);
-        println!("Commands:");
-        println!("  service - Run as a background service");
-        println!("  tui     - Run with terminal user interface");
-        return Ok(());
-    }
+    match cli.command {
+        Commands::Start => {
+            let config = Config::load()?;
+            let mut service = SyncService::new(config).await?;
+            println!("Iniciando serviço de sincronização...");
+            service.start().await?;
+            println!("Serviço iniciado. Pressione Ctrl+C para parar.");
+            tokio::signal::ctrl_c().await?;
+        }
 
-    match args[1].as_str() {
-        "service" => run_service().await,
-        "tui" => run_tui().await,
-        _ => {
-            println!("Unknown command: {}", args[1]);
-            Ok(())
+        Commands::AddProvider {
+            name,
+            provider_type,
+            client_id,
+            client_secret,
+        } => {
+            let mut config = Config::load()?;
+            
+            // Verificar se já existe um provedor com este nome
+            if config.find_provider(&name).is_some() {
+                anyhow::bail!("Já existe um provedor com o nome: {}", name);
+            }
+
+            // Criar configuração do provedor
+            let credentials = match provider_type {
+                ProviderType::GoogleDrive => filesync::config::ProviderCredentials::GoogleDrive(
+                    filesync::config::GoogleDriveCredentials {
+                        client_id,
+                        client_secret,
+                        token: None,
+                    },
+                ),
+                ProviderType::OneDrive => filesync::config::ProviderCredentials::OneDrive(
+                    filesync::config::OneDriveCredentials {
+                        client_id,
+                        client_secret,
+                        token: None,
+                    },
+                ),
+            };
+
+            config.providers.push(filesync::config::ProviderConfig {
+                name,
+                credentials,
+                mappings: Vec::new(),
+                enabled: true,
+            });
+
+            config.save()?;
+            println!("Provedor adicionado com sucesso!");
+        }
+
+        Commands::AddMapping {
+            provider,
+            local_path,
+            remote_path,
+        } => {
+            let mut config = Config::load()?;
+            
+            let provider_config = config
+                .find_provider_mut(&provider)
+                .ok_or_else(|| anyhow::anyhow!("Provedor não encontrado: {}", provider))?;
+
+            // Verificar se o caminho local já está mapeado
+            if provider_config
+                .mappings
+                .iter()
+                .any(|m| m.local_path == local_path)
+            {
+                anyhow::bail!("Este caminho local já está mapeado: {:?}", local_path);
+            }
+
+            provider_config.mappings.push(filesync::config::FolderMapping {
+                local_path,
+                remote_path,
+            });
+
+            config.save()?;
+            println!("Mapeamento adicionado com sucesso!");
+        }
+
+        Commands::ListProviders => {
+            let config = Config::load()?;
+            println!("Provedores configurados:");
+            for provider in &config.providers {
+                println!(
+                    "- {} ({}) [{}]",
+                    provider.name,
+                    match provider.credentials {
+                        filesync::config::ProviderCredentials::GoogleDrive(_) => "Google Drive",
+                        filesync::config::ProviderCredentials::OneDrive(_) => "OneDrive",
+                    },
+                    if provider.enabled { "ativo" } else { "inativo" }
+                );
+            }
+        }
+
+        Commands::ListMappings { provider } => {
+            let config = Config::load()?;
+            let provider_config = config
+                .find_provider(&provider)
+                .ok_or_else(|| anyhow::anyhow!("Provedor não encontrado: {}", provider))?;
+
+            println!("Mapeamentos do provedor {}:", provider);
+            for mapping in &provider_config.mappings {
+                println!(
+                    "- Local: {:?} -> Remoto: {}",
+                    mapping.local_path, mapping.remote_path
+                );
+            }
+        }
+
+        Commands::RemoveProvider { name } => {
+            let mut config = Config::load()?;
+            config.providers.retain(|p| p.name != name);
+            config.save()?;
+            println!("Provedor removido com sucesso!");
+        }
+
+        Commands::RemoveMapping { provider, local_path } => {
+            let mut config = Config::load()?;
+            let provider_config = config
+                .find_provider_mut(&provider)
+                .ok_or_else(|| anyhow::anyhow!("Provedor não encontrado: {}", provider))?;
+
+            provider_config
+                .mappings
+                .retain(|m| m.local_path != local_path);
+
+            config.save()?;
+            println!("Mapeamento removido com sucesso!");
         }
     }
-}
-
-async fn run_service() -> Result<()> {
-    // Load configuration
-    let config = Config::load("config.toml")?;
-    config.validate()?;
-
-    // Initialize plugin manager
-    let plugin_manager = Arc::new(PluginManager::new());
-
-    // Register plugins
-    if let Some(google_drive_config) = config.plugins.get("google_drive") {
-        if google_drive_config.enabled {
-            let google_drive = GoogleDriveClient::new(google_drive_config.root_folder.clone()).await?;
-            plugin_manager
-                .register_plugin(Box::new(google_drive))
-                .await?;
-        }
-    }
-
-    if let Some(onedrive_config) = config.plugins.get("onedrive") {
-        if onedrive_config.enabled {
-            let onedrive = OneDrivePlugin::new(onedrive_config.root_folder.clone());
-            plugin_manager.register_plugin(Box::new(onedrive)).await?;
-        }
-    }
-
-    // Create and start service
-    let mut service = Service::new(config, plugin_manager);
-    service.start().await?;
-
-    println!("Service started successfully!");
-    println!("Press Ctrl+C to stop the service");
-
-    // Wait for Ctrl+C
-    tokio::signal::ctrl_c().await?;
-
-    // Stop service
-    service.stop().await?;
-    println!("Service stopped successfully!");
-
-    Ok(())
-}
-
-async fn run_tui() -> Result<()> {
-    // Initialize TUI
-    let mut tui = Tui::new()?;
-    let mut app = App::new();
-
-    // Load configuration
-    let config = Config::load("config.toml")?;
-    config.validate()?;
-
-    // Initialize plugin manager
-    let plugin_manager = Arc::new(PluginManager::new());
-
-    // Register plugins
-    if let Some(google_drive_config) = config.plugins.get("google_drive") {
-        if google_drive_config.enabled {
-            let google_drive = GoogleDriveClient::new(google_drive_config.root_folder.clone()).await?;
-            plugin_manager
-                .register_plugin(Box::new(google_drive))
-                .await?;
-            app.add_status_message("Google Drive plugin registered");
-        }
-    }
-
-    if let Some(onedrive_config) = config.plugins.get("onedrive") {
-        if onedrive_config.enabled {
-            let onedrive = OneDrivePlugin::new(onedrive_config.root_folder.clone());
-            plugin_manager.register_plugin(Box::new(onedrive)).await?;
-            app.add_status_message("OneDrive plugin registered");
-        }
-    }
-
-    // Create and start service
-    let mut service = Service::new(config, plugin_manager);
-    service.start().await?;
-    app.add_status_message("Service started successfully");
-
-    // Run TUI
-    tui.run(&mut app)?;
-
-    // Stop service
-    service.stop().await?;
-    app.add_status_message("Service stopped successfully");
 
     Ok(())
 }

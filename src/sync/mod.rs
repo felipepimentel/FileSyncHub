@@ -1,238 +1,175 @@
-mod performance;
-mod safety;
+use anyhow::{Result, Context};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use tokio::sync::mpsc;
+use crate::config::{Config, ProviderConfig};
+use crate::provider::{CloudProvider, ChangeType, RemoteItem, create_provider};
 
-use anyhow::Result;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use tokio::sync::RwLock;
-
-use crate::plugins::Plugin;
-use performance::PerformanceOptimizer;
-use safety::SafeSync;
-
-pub struct SyncManager {
-    plugins: Vec<Box<dyn Plugin>>,
-    safe_sync: Arc<SafeSync>,
-    performance: Arc<PerformanceOptimizer>,
-    temp_dir: PathBuf,
+pub struct SyncService {
+    config: Config,
+    providers: HashMap<String, Box<dyn CloudProvider>>,
 }
 
-impl SyncManager {
-    pub fn new(temp_dir: PathBuf) -> Self {
-        let backup_dir = temp_dir.join("backups");
-        Self {
-            plugins: Vec::new(),
-            safe_sync: Arc::new(SafeSync::new(backup_dir)),
-            performance: Arc::new(PerformanceOptimizer::new(temp_dir.clone())),
-            temp_dir,
-        }
-    }
+impl SyncService {
+    pub async fn new(config: Config) -> Result<Self> {
+        let mut providers = HashMap::new();
 
-    pub fn register_plugin(&mut self, plugin: Box<dyn Plugin>) {
-        self.plugins.push(plugin);
-    }
-
-    /// Sincroniza um arquivo com todos os plugins registrados
-    pub async fn sync_file(&self, path: &Path) -> Result<()> {
-        // Verificar se é seguro sincronizar
-        if !self.safe_sync.is_safe_to_sync(path).await? {
-            log::warn!("Não é seguro sincronizar o arquivo: {}", path.display());
-            return Ok(());
+        for provider_config in &config.providers {
+            if provider_config.enabled {
+                let provider = create_provider(provider_config).await?;
+                providers.insert(provider_config.name.clone(), provider);
+            }
         }
 
-        // Processar arquivo em chunks para otimização
-        let chunks = self.performance.process_file(path).await?;
+        Ok(Self { config, providers })
+    }
 
-        // Sincronizar com cada plugin
-        for plugin in &self.plugins {
-            let plugin_name = plugin.name();
-            log::info!(
-                "Sincronizando {} com plugin {}",
-                path.display(),
-                plugin_name
-            );
+    pub async fn start(&mut self) -> Result<()> {
+        // Inicializa todos os provedores
+        for (name, provider) in &mut self.providers {
+            provider.initialize().await
+                .with_context(|| format!("Failed to initialize provider: {}", name))?;
+        }
 
-            // Upload do arquivo em chunks
-            self.performance
-                .upload_chunks(path, |data, offset| {
-                    let plugin = plugin.clone();
-                    Box::pin(async move {
-                        plugin.upload_chunk(path, data, offset).await?;
-                        Ok(())
-                    })
-                })
-                .await?;
-
-            log::info!(
-                "Sincronização completa de {} com plugin {}",
-                path.display(),
-                plugin_name
-            );
+        // Para cada provedor habilitado, inicia o monitoramento
+        for provider_config in self.config.providers.iter().filter(|p| p.enabled) {
+            if let Some(provider) = self.providers.get(&provider_config.name) {
+                self.start_provider_sync(provider_config, provider.as_ref()).await?;
+            }
         }
 
         Ok(())
     }
 
-    /// Baixa um arquivo de um plugin específico
-    pub async fn download_file(
+    async fn start_provider_sync(
         &self,
-        plugin: &Box<dyn Plugin>,
-        remote_path: &str,
-        local_path: &Path,
-        size: u64,
+        config: &ProviderConfig,
+        provider: &dyn CloudProvider,
     ) -> Result<()> {
-        log::info!(
-            "Baixando arquivo {} do plugin {}",
-            remote_path,
-            plugin.name()
-        );
+        // Para cada mapeamento, inicia o monitoramento local e remoto
+        for mapping in &config.mappings {
+            let (local_tx, mut local_rx) = mpsc::channel(100);
+            let (remote_tx, mut remote_rx) = mpsc::channel(100);
 
-        // Download do arquivo em chunks
-        self.performance
-            .download_chunks(local_path, size, |offset, chunk_size| {
-                let plugin = plugin.clone();
-                let remote_path = remote_path.to_string();
-                Box::pin(async move {
-                    plugin
-                        .download_chunk(&remote_path, offset, chunk_size)
-                        .await
-                })
-            })
-            .await?;
+            // Clone necessário para o closure
+            let provider_name = config.name.clone();
+            let local_path = mapping.local_path.clone();
+            let remote_path = mapping.remote_path.clone();
+            let provider = self.providers[&provider_name].as_ref();
 
-        // Verificar integridade do arquivo baixado
-        if !self.safe_sync.verify_file_integrity(local_path).await? {
-            log::error!(
-                "Falha na verificação de integridade do arquivo baixado: {}",
-                local_path.display()
-            );
-            // Tentar restaurar do backup se disponível
-            self.safe_sync.restore_from_backup(local_path).await?;
-        }
+            // Monitora mudanças locais
+            provider.watch_local_changes(&mapping.local_path, local_tx).await?;
 
-        log::info!(
-            "Download completo de {} do plugin {}",
-            remote_path,
-            plugin.name()
-        );
+            // Monitora mudanças remotas
+            provider.watch_remote_changes(&mapping.remote_path, remote_tx).await?;
 
-        Ok(())
-    }
+            // Processa mudanças locais
+            tokio::spawn({
+                let provider_name = provider_name.clone();
+                let provider = self.providers[&provider_name].as_ref();
+                async move {
+                    while let Some(change) = local_rx.recv().await {
+                        match change {
+                            ChangeType::Created(path) => {
+                                if let Err(e) = handle_local_create(provider, &path, &local_path, &remote_path).await {
+                                    eprintln!("Error handling local create: {}", e);
+                                }
+                            }
+                            ChangeType::Modified(path) => {
+                                if let Err(e) = handle_local_modify(provider, &path, &local_path, &remote_path).await {
+                                    eprintln!("Error handling local modify: {}", e);
+                                }
+                            }
+                            ChangeType::Deleted(path) => {
+                                if let Err(e) = handle_local_delete(provider, &path, &local_path, &remote_path).await {
+                                    eprintln!("Error handling local delete: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
-    /// Deleta um arquivo localmente e em todos os plugins
-    pub async fn delete_file(&self, path: &Path) -> Result<()> {
-        // Criar backup antes de deletar
-        if !self.safe_sync.is_safe_to_sync(path).await? {
-            log::warn!(
-                "Não é seguro deletar o arquivo sem backup: {}",
-                path.display()
-            );
-            return Ok(());
-        }
-
-        // Deletar em cada plugin
-        for plugin in &self.plugins {
-            plugin.delete_file(path).await?;
-        }
-
-        // Deletar arquivo local
-        if path.exists() {
-            tokio::fs::remove_file(path).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Limpa os caches e arquivos temporários
-    pub async fn cleanup(&self) -> Result<()> {
-        self.performance.clear_cache().await;
-
-        // Limpar diretório temporário
-        if self.temp_dir.exists() {
-            tokio::fs::remove_dir_all(&self.temp_dir).await?;
-            tokio::fs::create_dir_all(&self.temp_dir).await?;
+            // Processa mudanças remotas
+            tokio::spawn({
+                let provider_name = provider_name.clone();
+                let provider = self.providers[&provider_name].as_ref();
+                async move {
+                    while let Some(item) = remote_rx.recv().await {
+                        if let Err(e) = handle_remote_change(provider, &item, &local_path, &remote_path).await {
+                            eprintln!("Error handling remote change: {}", e);
+                        }
+                    }
+                }
+            });
         }
 
         Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use async_trait::async_trait;
-    use bytes::Bytes;
-    use tempfile::tempdir;
+async fn handle_local_create(
+    provider: &dyn CloudProvider,
+    path: &PathBuf,
+    local_base: &PathBuf,
+    remote_base: &str,
+) -> Result<()> {
+    let relative_path = path.strip_prefix(local_base)?;
+    let remote_path = format!("{}/{}", remote_base, relative_path.display());
 
-    #[derive(Clone)]
-    struct MockPlugin {
-        name: String,
+    if path.is_dir() {
+        provider.create_directory(&remote_path).await?;
+    } else {
+        provider.upload_file(path, &remote_path).await?;
     }
 
-    #[async_trait]
-    impl Plugin for MockPlugin {
-        fn name(&self) -> &str {
-            &self.name
-        }
+    Ok(())
+}
 
-        async fn upload_chunk(&self, path: &Path, data: Bytes, offset: u64) -> Result<()> {
-            log::info!(
-                "Mock upload: {} offset={} size={}",
-                path.display(),
-                offset,
-                data.len()
-            );
-            Ok(())
-        }
+async fn handle_local_modify(
+    provider: &dyn CloudProvider,
+    path: &PathBuf,
+    local_base: &PathBuf,
+    remote_base: &str,
+) -> Result<()> {
+    if path.is_file() {
+        let relative_path = path.strip_prefix(local_base)?;
+        let remote_path = format!("{}/{}", remote_base, relative_path.display());
+        provider.upload_file(path, &remote_path).await?;
+    }
+    Ok(())
+}
 
-        async fn download_chunk(&self, path: &str, offset: u64, size: usize) -> Result<Bytes> {
-            Ok(Bytes::from(vec![0u8; size]))
-        }
+async fn handle_local_delete(
+    provider: &dyn CloudProvider,
+    path: &PathBuf,
+    local_base: &PathBuf,
+    remote_base: &str,
+) -> Result<()> {
+    let relative_path = path.strip_prefix(local_base)?;
+    let remote_path = format!("{}/{}", remote_base, relative_path.display());
+    provider.delete(&remote_path).await?;
+    Ok(())
+}
 
-        async fn delete_file(&self, path: &Path) -> Result<()> {
-            log::info!("Mock delete: {}", path.display());
-            Ok(())
-        }
+async fn handle_remote_change(
+    provider: &dyn CloudProvider,
+    item: &RemoteItem,
+    local_base: &PathBuf,
+    remote_base: &str,
+) -> Result<()> {
+    let relative_path = item.path.strip_prefix(remote_base)
+        .with_context(|| format!("Failed to strip remote base: {} from {}", remote_base, item.path))?;
+    let local_path = local_base.join(relative_path);
 
-        fn clone_box(&self) -> Box<dyn Plugin> {
-            Box::new(self.clone())
+    if item.is_dir {
+        tokio::fs::create_dir_all(&local_path).await?;
+    } else {
+        if let Some(parent) = local_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
+        provider.download_file(&item.path, &local_path).await?;
     }
 
-    #[tokio::test]
-    async fn test_sync_manager() -> Result<()> {
-        let temp_dir = tempdir()?;
-        let mut manager = SyncManager::new(temp_dir.path().to_path_buf());
-
-        // Registrar plugin mock
-        manager.register_plugin(Box::new(MockPlugin {
-            name: "mock".to_string(),
-        }));
-
-        // Criar arquivo de teste
-        let test_file = temp_dir.path().join("test.txt");
-        tokio::fs::write(&test_file, b"test data").await?;
-
-        // Testar sincronização
-        manager.sync_file(&test_file).await?;
-
-        // Testar download
-        let download_path = temp_dir.path().join("downloaded.txt");
-        manager
-            .download_file(
-                &manager.plugins[0],
-                "test.txt",
-                &download_path,
-                "test data".len() as u64,
-            )
-            .await?;
-
-        // Testar deleção
-        manager.delete_file(&test_file).await?;
-        assert!(!test_file.exists());
-
-        Ok(())
-    }
+    Ok(())
 }
