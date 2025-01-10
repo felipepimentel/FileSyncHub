@@ -18,3 +18,27 @@ credentials_path = "./credentials/onedrive.json"
 folder_id = "your_onedrive_folder_id"
 include = ["*.txt", "*.md", "*.pdf"]
 exclude = ["*.tmp", "*.log"]
+
+[[providers]]
+name = "Personal Drive"
+enabled = true
+credentials = { type = "googledrive", client_id = "your-client-id", client_secret = "your-client-secret" }
+mappings = [
+    { local_path = "~/Documents", remote_path = "/docs" },
+    { local_path = "~/Pictures", remote_path = "/photos" },
+]
+
+[[providers]]
+name = "Work OneDrive"
+enabled = true
+credentials = { type = "onedrive", client_id = "your-client-id", client_secret = "your-client-secret" }
+mappings = [
+    { local_path = "~/Work", remote_path = "/projects" },
+    { local_path = "~/Downloads", remote_path = "/downloads" },
+]
+
+[[providers]]
+name = "Backup Drive"
+enabled = true
+credentials = { type = "googledrive", client_id = "your-client-id", client_secret = "your-client-secret" }
+mappings = [{ local_path = "~/Backups", remote_path = "/backups" }]

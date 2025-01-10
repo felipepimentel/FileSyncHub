@@ -1,41 +1,40 @@
 use std::io;
-use std::time::Duration;
-
+use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
-    backend::{CrosstermBackend},
+    backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Frame, Terminal,
+    Terminal,
 };
 
 use crate::config::Config;
 
 pub struct Tui {
-    terminal: Terminal<CrosstermBackend<io::Stdout>>,
     config: Config,
+    terminal: Terminal<CrosstermBackend<io::Stdout>>,
 }
 
 impl Tui {
-    pub fn new(config: Config) -> io::Result<Self> {
-        let backend = CrosstermBackend::new(io::stdout());
-        let terminal = Terminal::new(backend)?;
-        Ok(Self { terminal, config })
-    }
-
-    pub fn run(&mut self) -> io::Result<()> {
+    pub fn new(config: Config) -> Result<Self> {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let terminal = Terminal::new(backend)?;
 
-        let result = self.run_app();
+        Ok(Self { config, terminal })
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        let res = self.run_app();
 
         // Restore terminal
         disable_raw_mode()?;
@@ -46,79 +45,73 @@ impl Tui {
         )?;
         self.terminal.show_cursor()?;
 
-        result
+        if let Err(err) = res {
+            println!("{:?}", err)
+        }
+
+        Ok(())
     }
 
-    fn run_app(&mut self) -> io::Result<()> {
+    fn run_app(&mut self) -> Result<()> {
         loop {
-            let config = self.config.clone();
-            self.terminal.draw(move |f| {
-                Self::render_ui(f, &config);
+            self.terminal.draw(|f| {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints([
+                        Constraint::Length(3),
+                        Constraint::Min(0),
+                    ].as_ref())
+                    .split(f.size());
+
+                let title = Paragraph::new(Line::from(vec![
+                    Span::styled("FileSyncHub ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw("- Press 'q' to quit, 's' to start syncing, 'p' to pause"),
+                ]))
+                .block(Block::default().borders(Borders::ALL));
+                f.render_widget(title, chunks[0]);
+
+                let providers: Vec<ListItem> = self.config.providers
+                    .iter()
+                    .map(|p| {
+                        let mut lines = vec![Line::from(vec![
+                            Span::styled(
+                                format!("{} ", p.name),
+                                Style::default().fg(Color::Yellow),
+                            ),
+                        ])];
+
+                        lines.extend(p.mappings.iter().map(|m| {
+                            Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled(
+                                    format!("{} → {}", m.local_path.display(), m.remote_path),
+                                    Style::default().fg(Color::Blue),
+                                ),
+                            ])
+                        }));
+
+                        ListItem::new(lines)
+                    })
+                    .collect();
+
+                let providers = List::new(providers)
+                    .block(Block::default().title("Providers").borders(Borders::ALL));
+                f.render_widget(providers, chunks[1]);
             })?;
 
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') => return Ok(()),
-                        _ => {}
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Char('s') => {
+                        // TODO: Start syncing
                     }
+                    KeyCode::Char('p') => {
+                        // TODO: Pause syncing
+                    }
+                    _ => {}
                 }
             }
         }
-    }
-
-    fn render_ui(f: &mut Frame, config: &Config) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(1)
-            .constraints(
-                [
-                    Constraint::Length(3),
-                    Constraint::Min(0),
-                    Constraint::Length(3),
-                ]
-                .as_ref(),
-            )
-            .split(f.size());
-
-        // Title
-        let title = Paragraph::new("FileSyncHub")
-            .style(Style::default().fg(Color::Cyan))
-            .block(Block::default().borders(Borders::ALL));
-        f.render_widget(title, chunks[0]);
-
-        // Providers List
-        let providers: Vec<ListItem> = config
-            .providers
-            .iter()
-            .map(|p| {
-                let status = if p.enabled { "✓" } else { "✗" };
-                let content = Line::from(vec![
-                    Span::raw(format!("{} ", status)),
-                    Span::styled(
-                        &p.name,
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" - "),
-                    Span::raw(match p.credentials {
-                        crate::config::ProviderCredentials::GoogleDrive(_) => "Google Drive",
-                        crate::config::ProviderCredentials::OneDrive(_) => "OneDrive",
-                    }),
-                ]);
-                ListItem::new(content)
-            })
-            .collect();
-
-        let providers = List::new(providers)
-            .block(Block::default().title("Providers").borders(Borders::ALL))
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-            .highlight_symbol(">> ");
-        f.render_widget(providers, chunks[1]);
-
-        // Help
-        let help = Paragraph::new("Press 'q' to quit")
-            .style(Style::default().fg(Color::Gray))
-            .block(Block::default().borders(Borders::ALL));
-        f.render_widget(help, chunks[2]);
     }
 }
