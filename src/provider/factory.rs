@@ -1,26 +1,23 @@
-use anyhow::Result;
-
-use crate::config::{ProviderConfig, ProviderCredentials};
-use super::{CloudProvider, google_drive::GoogleDriveProvider, onedrive::OneDriveProvider};
+use anyhow::{anyhow, Result};
+use crate::config::ProviderConfig;
+use crate::provider::{CloudProvider, google_drive::GoogleDriveProvider, onedrive::OneDriveProvider};
 
 pub async fn create_provider(config: &ProviderConfig) -> Result<Box<dyn CloudProvider>> {
-    match &config.credentials {
-        ProviderCredentials::GoogleDrive(creds) => {
+    match &config.credentials.provider_type {
+        "googledrive" => {
             let provider = GoogleDriveProvider::new(
-                creds.client_id.clone(),
-                creds.client_secret.clone(),
-                Some(format!("token_{}.json", config.name)),
-                config.mappings.clone(),
+                &config.credentials.client_id,
+                &config.credentials.client_secret,
             ).await?;
             Ok(Box::new(provider))
         }
-        ProviderCredentials::OneDrive(creds) => {
+        "onedrive" => {
             let provider = OneDriveProvider::new(
-                creds.client_id.clone(),
-                creds.client_secret.clone(),
-                config.mappings.clone(),
+                &config.credentials.client_id,
+                &config.credentials.client_secret,
             );
             Ok(Box::new(provider))
         }
+        _ => Err(anyhow!("Unsupported provider type: {}", config.credentials.provider_type)),
     }
 } 

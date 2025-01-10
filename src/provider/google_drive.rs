@@ -3,6 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use google_drive3::{DriveHub, oauth2, hyper, hyper_rustls};
 use tokio::sync::mpsc;
+use chrono::{DateTime, Utc};
 
 use super::{CloudProvider, RemoteItem, ChangeType, FolderMapping};
 
@@ -51,39 +52,69 @@ impl GoogleDriveProvider {
 
 #[async_trait]
 impl CloudProvider for GoogleDriveProvider {
-    async fn list_files(&self, _remote_path: &str) -> Result<Vec<RemoteItem>> {
-        // TODO: Implement
-        Ok(vec![])
+    async fn initialize(&mut self) -> Result<()> {
+        // Test the connection by trying to list files
+        self.list_files("/").await?;
+        Ok(())
+    }
+
+    async fn list_files(&self, remote_path: &str) -> Result<Vec<RemoteItem>> {
+        let (_, file_list) = self.hub
+            .files()
+            .list()
+            .q(&format!("'{}' in parents", remote_path))
+            .doit()
+            .await?;
+
+        let items = file_list.files.unwrap_or_default()
+            .into_iter()
+            .map(|file| {
+                let modified = file.modified_time
+                    .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+                    .map(|t| t.with_timezone(&Utc))
+                    .unwrap_or_else(Utc::now);
+
+                RemoteItem {
+                    name: file.name.unwrap_or_default(),
+                    id: file.id.unwrap_or_default(),
+                    size: file.size.unwrap_or_default() as u64,
+                    modified,
+                    is_folder: file.mime_type.unwrap_or_default() == "application/vnd.google-apps.folder",
+                }
+            })
+            .collect();
+
+        Ok(items)
     }
 
     async fn upload_file(&self, _local_path: &Path, _remote_path: &str) -> Result<RemoteItem> {
-        // TODO: Implement
+        // TODO: Implement file upload
         unimplemented!()
     }
 
     async fn download_file(&self, _remote_path: &str, _local_path: &Path) -> Result<()> {
-        // TODO: Implement
+        // TODO: Implement file download
         unimplemented!()
     }
 
     async fn create_directory(&self, _remote_path: &str) -> Result<RemoteItem> {
-        // TODO: Implement
+        // TODO: Implement directory creation
         unimplemented!()
     }
 
     async fn delete(&self, _remote_path: &str) -> Result<()> {
-        // TODO: Implement
+        // TODO: Implement deletion
         unimplemented!()
     }
 
     async fn exists(&self, _remote_path: &str) -> Result<bool> {
-        // TODO: Implement
-        Ok(false)
+        // TODO: Implement existence check
+        unimplemented!()
     }
 
     async fn get_item(&self, _remote_path: &str) -> Result<Option<RemoteItem>> {
-        // TODO: Implement
-        Ok(None)
+        // TODO: Implement item retrieval
+        unimplemented!()
     }
 
     async fn watch_local_changes(&self, _local_path: &Path, _tx: mpsc::Sender<ChangeType>) -> Result<()> {

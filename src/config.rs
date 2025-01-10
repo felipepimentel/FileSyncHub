@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -16,22 +16,9 @@ pub struct ProviderConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ProviderCredentials {
-    #[serde(rename = "googledrive")]
-    GoogleDrive(GoogleDriveCredentials),
-    #[serde(rename = "onedrive")]
-    OneDrive(OneDriveCredentials),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GoogleDriveCredentials {
-    pub client_id: String,
-    pub client_secret: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OneDriveCredentials {
+pub struct ProviderCredentials {
+    #[serde(rename = "type")]
+    pub provider_type: String,
     pub client_id: String,
     pub client_secret: String,
 }
@@ -43,21 +30,9 @@ pub struct FolderMapping {
 }
 
 impl Config {
-    pub fn new() -> Self {
-        Self {
-            providers: Vec::new(),
-        }
-    }
-
-    pub async fn from_file(path: &str) -> Result<Self> {
+    pub async fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = tokio::fs::read_to_string(path).await?;
         let config = toml::from_str(&content)?;
         Ok(config)
-    }
-
-    pub async fn save(&self, path: &str) -> Result<()> {
-        let content = toml::to_string_pretty(self)?;
-        tokio::fs::write(path, content).await?;
-        Ok(())
     }
 }
