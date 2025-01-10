@@ -36,19 +36,21 @@ async fn test_onedrive_provider() -> Result<()> {
 
     // Criar provedor com servidor mock
     let provider = OneDriveProvider::new(
-        "test".to_string(),
         "client_id".to_string(),
         "client_secret".to_string(),
-        Some("test_token".to_string()),
-    )?;
+        vec![FolderMapping {
+            local_path: tempdir()?.path().to_path_buf(),
+            remote_path: "/test".to_string(),
+        }],
+    );
 
     // Testar listagem de arquivos
     let files = provider.list_files("/test").await?;
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "test.txt");
-    assert!(!files[0].is_dir);
+    assert!(!files[0].is_folder);
     assert_eq!(files[1].name, "folder");
-    assert!(files[1].is_dir);
+    assert!(files[1].is_folder);
 
     // Testar upload de arquivo
     let temp_dir = tempdir()?;
@@ -97,7 +99,7 @@ async fn test_onedrive_provider() -> Result<()> {
 
     let created = provider.create_directory("/test/new_folder").await?;
     assert_eq!(created.name, "new_folder");
-    assert!(created.is_dir);
+    assert!(created.is_folder);
 
     // Testar deleção
     Mock::given(method("DELETE"))
@@ -150,11 +152,13 @@ async fn test_onedrive_error_handling() -> Result<()> {
         .await;
 
     let provider = OneDriveProvider::new(
-        "test".to_string(),
         "client_id".to_string(),
         "client_secret".to_string(),
-        Some("invalid_token".to_string()),
-    )?;
+        vec![FolderMapping {
+            local_path: tempdir()?.path().to_path_buf(),
+            remote_path: "/test".to_string(),
+        }],
+    );
 
     // Verificar se o erro é propagado corretamente
     let result = provider.list_files("/test").await;
@@ -181,11 +185,13 @@ async fn test_onedrive_rate_limiting() -> Result<()> {
         .await;
 
     let provider = OneDriveProvider::new(
-        "test".to_string(),
         "client_id".to_string(),
         "client_secret".to_string(),
-        Some("test_token".to_string()),
-    )?;
+        vec![FolderMapping {
+            local_path: tempdir()?.path().to_path_buf(),
+            remote_path: "/test".to_string(),
+        }],
+    );
 
     // Verificar se o erro de rate limiting é propagado
     let result = provider.list_files("/test").await;

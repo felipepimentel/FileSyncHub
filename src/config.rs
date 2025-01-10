@@ -12,6 +12,7 @@ pub struct ProviderConfig {
     pub name: String,
     pub enabled: bool,
     pub credentials: ProviderCredentials,
+    pub mappings: Vec<FolderMapping>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +34,12 @@ pub struct GoogleDriveCredentials {
 pub struct OneDriveCredentials {
     pub client_id: String,
     pub client_secret: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderMapping {
+    pub local_path: PathBuf,
+    pub remote_path: String,
 }
 
 impl Config {

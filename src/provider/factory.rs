@@ -10,6 +10,7 @@ pub async fn create_provider(config: &ProviderConfig) -> Result<Box<dyn CloudPro
                 creds.client_id.clone(),
                 creds.client_secret.clone(),
                 Some(format!("token_{}.json", config.name)),
+                config.mappings.clone(),
             ).await?;
             Ok(Box::new(provider))
         }
@@ -17,6 +18,7 @@ pub async fn create_provider(config: &ProviderConfig) -> Result<Box<dyn CloudPro
             let provider = OneDriveProvider::new(
                 creds.client_id.clone(),
                 creds.client_secret.clone(),
+                config.mappings.clone(),
             );
             Ok(Box::new(provider))
         }

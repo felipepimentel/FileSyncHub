@@ -24,11 +24,7 @@ pub enum ChangeType {
     Deleted(std::path::PathBuf),
 }
 
-#[derive(Debug, Clone)]
-pub struct FolderMapping {
-    pub local_path: std::path::PathBuf,
-    pub remote_path: String,
-}
+pub use crate::config::FolderMapping;
 
 #[async_trait]
 pub trait CloudProvider: Send + Sync {

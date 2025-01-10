@@ -3,20 +3,22 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use super::{ChangeType, CloudProvider, RemoteItem, FolderMapping};
+use super::{CloudProvider, RemoteItem, ChangeType, FolderMapping};
 
 pub struct OneDriveProvider {
+    #[allow(dead_code)]
     client_id: String,
+    #[allow(dead_code)]
     client_secret: String,
     mappings: Vec<FolderMapping>,
 }
 
 impl OneDriveProvider {
-    pub fn new(client_id: String, client_secret: String) -> Self {
+    pub fn new(client_id: String, client_secret: String, mappings: Vec<FolderMapping>) -> Self {
         Self {
             client_id,
             client_secret,
-            mappings: Vec::new(),
+            mappings,
         }
     }
 }
@@ -24,59 +26,47 @@ impl OneDriveProvider {
 #[async_trait]
 impl CloudProvider for OneDriveProvider {
     async fn list_files(&self, _remote_path: &str) -> Result<Vec<RemoteItem>> {
-        // TODO: Implement list_files
-        Ok(Vec::new())
+        // TODO: Implement
+        Ok(vec![])
     }
 
-    async fn upload_file(&self, local_path: &Path, remote_path: &str) -> Result<RemoteItem> {
-        // TODO: Implement upload_file
-        Ok(RemoteItem {
-            id: "".to_string(),
-            name: "".to_string(),
-            is_folder: false,
-            size: 0,
-            modified: None,
-        })
+    async fn upload_file(&self, _local_path: &Path, _remote_path: &str) -> Result<RemoteItem> {
+        // TODO: Implement
+        unimplemented!()
     }
 
     async fn download_file(&self, _remote_path: &str, _local_path: &Path) -> Result<()> {
-        // TODO: Implement download_file
-        Ok(())
+        // TODO: Implement
+        unimplemented!()
     }
 
-    async fn create_directory(&self, remote_path: &str) -> Result<RemoteItem> {
-        // TODO: Implement create_directory
-        Ok(RemoteItem {
-            id: "".to_string(),
-            name: "".to_string(),
-            is_folder: true,
-            size: 0,
-            modified: None,
-        })
+    async fn create_directory(&self, _remote_path: &str) -> Result<RemoteItem> {
+        // TODO: Implement
+        unimplemented!()
     }
 
     async fn delete(&self, _remote_path: &str) -> Result<()> {
-        // TODO: Implement delete
-        Ok(())
+        // TODO: Implement
+        unimplemented!()
     }
 
     async fn exists(&self, _remote_path: &str) -> Result<bool> {
-        // TODO: Implement exists
+        // TODO: Implement
         Ok(false)
     }
 
     async fn get_item(&self, _remote_path: &str) -> Result<Option<RemoteItem>> {
-        // TODO: Implement get_item
+        // TODO: Implement
         Ok(None)
     }
 
     async fn watch_local_changes(&self, _local_path: &Path, _tx: mpsc::Sender<ChangeType>) -> Result<()> {
-        // TODO: Implement watch_local_changes
+        // TODO: Implement
         Ok(())
     }
 
-    async fn watch_remote_changes(&self, remote_path: &str, tx: mpsc::Sender<RemoteItem>) -> Result<()> {
-        // TODO: Implement watch_remote_changes
+    async fn watch_remote_changes(&self, _remote_path: &str, _tx: mpsc::Sender<RemoteItem>) -> Result<()> {
+        // TODO: Implement
         Ok(())
     }
 
