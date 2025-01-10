@@ -1,97 +1,63 @@
-use crate::{config::Config, plugins::PluginManager, watcher::FileWatcher};
-use anyhow::Result;
 use std::sync::Arc;
+use anyhow::Result;
+use tokio::sync::mpsc;
 
-pub struct Service {
-    config: Config,
-    plugin_manager: Arc<PluginManager>,
-    file_watcher: Option<FileWatcher>,
+use crate::config::Config;
+use crate::provider::{CloudProvider, ChangeType, factory};
+
+pub struct SyncService {
+    providers: Vec<Arc<Box<dyn CloudProvider>>>,
 }
 
-impl Service {
-    pub fn new(config: Config, plugin_manager: Arc<PluginManager>) -> Self {
-        Self {
-            config,
-            plugin_manager,
-            file_watcher: None,
+impl SyncService {
+    pub async fn new(config: Config) -> Result<Self> {
+        let mut providers = Vec::new();
+        
+        for provider_config in &config.providers {
+            if provider_config.enabled {
+                let provider = factory::create_provider(provider_config).await?;
+                providers.push(Arc::new(provider));
+            }
         }
+
+        Ok(Self { providers })
     }
 
-    pub async fn start(&mut self) -> Result<()> {
-        log::info!("Starting FileSyncHub service...");
+    pub async fn start(&self) -> Result<()> {
+        let (tx, mut rx) = mpsc::channel(100);
 
-        // Create file watcher
-        let mut watcher = FileWatcher::new(self.config.root_dir.clone());
+        // Start watching for changes in each provider
+        for provider in &self.providers {
+            let provider = Arc::clone(provider);
+            let tx = tx.clone();
 
-        // Start watching for events
-        let plugin_manager = self.plugin_manager.clone();
-        watcher
-            .start(move |event| {
-                let plugin_manager = plugin_manager.clone();
-                async move {
-                    if let Err(e) = plugin_manager.handle_event(&event.path).await {
-                        log::error!("Error handling file event: {}", e);
+            tokio::spawn(async move {
+                let mappings = provider.get_mappings().await;
+                for mapping in mappings {
+                    if let Err(e) = provider.watch_local_changes(&mapping.local_path, tx.clone()).await {
+                        eprintln!("Error watching local changes: {}", e);
                     }
                 }
-            })
-            .await?;
-
-        self.file_watcher = Some(watcher);
-        log::info!("FileSyncHub service started successfully");
-        Ok(())
-    }
-
-    pub async fn stop(&mut self) -> Result<()> {
-        log::info!("Stopping FileSyncHub service...");
-
-        if let Some(mut watcher) = self.file_watcher.take() {
-            watcher.stop().await?;
+            });
         }
 
-        log::info!("FileSyncHub service stopped successfully");
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::plugins::google_drive::GoogleDrivePlugin;
-    use tempfile::tempdir;
-
-    #[tokio::test]
-    async fn test_service() -> Result<()> {
-        // Create temporary directories
-        let temp_dir = tempdir()?;
-        let root_dir = temp_dir.path().join("root");
-        let temp_dir_path = temp_dir.path().join("temp");
-
-        // Create test configuration
-        let mut config = Config::new();
-        config.root_dir = root_dir.clone();
-        config.temp_dir = temp_dir_path;
-
-        // Create plugin manager and register a test plugin
-        let plugin_manager = Arc::new(PluginManager::new());
-        let google_drive = GoogleDrivePlugin::new("test".to_string());
-        plugin_manager
-            .register_plugin(Box::new(google_drive))
-            .await?;
-
-        // Create and start service
-        let mut service = Service::new(config, plugin_manager);
-        service.start().await?;
-
-        // Create a test file
-        tokio::fs::create_dir_all(&root_dir).await?;
-        let test_file = root_dir.join("test.txt");
-        tokio::fs::write(&test_file, b"test data").await?;
-
-        // Wait for events to be processed
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // Stop service
-        service.stop().await?;
+        // Handle changes
+        while let Some(change) = rx.recv().await {
+            match change {
+                ChangeType::Created(path) => {
+                    println!("File created: {:?}", path);
+                    // TODO: Handle file creation
+                }
+                ChangeType::Modified(path) => {
+                    println!("File modified: {:?}", path);
+                    // TODO: Handle file modification
+                }
+                ChangeType::Deleted(path) => {
+                    println!("File deleted: {:?}", path);
+                    // TODO: Handle file deletion
+                }
+            }
+        }
 
         Ok(())
     }

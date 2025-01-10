@@ -1,88 +1,124 @@
-pub mod app;
+use std::io;
+use std::time::Duration;
 
-use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
-    backend::CrosstermBackend,
+    backend::{CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
-    Terminal,
+    Frame, Terminal,
 };
-use std::io::stdout;
+
+use crate::config::Config;
 
 pub struct Tui {
-    terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+    terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    config: Config,
 }
 
 impl Tui {
-    pub fn new() -> Result<Self> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen)?;
-        let backend = CrosstermBackend::new(stdout);
+    pub fn new(config: Config) -> io::Result<Self> {
+        let backend = CrosstermBackend::new(io::stdout());
         let terminal = Terminal::new(backend)?;
-
-        Ok(Self { terminal })
+        Ok(Self { terminal, config })
     }
 
-    pub fn run(&mut self, app: &mut app::App) -> Result<()> {
+    pub fn run(&mut self) -> io::Result<()> {
+        // Setup terminal
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+
+        let result = self.run_app();
+
+        // Restore terminal
+        disable_raw_mode()?;
+        execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        self.terminal.show_cursor()?;
+
+        result
+    }
+
+    fn run_app(&mut self) -> io::Result<()> {
         loop {
-            self.terminal.draw(|f| {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(1)
-                    .constraints([
-                        Constraint::Length(3),
-                        Constraint::Min(0),
-                        Constraint::Length(3),
-                    ])
-                    .split(f.area());
-
-                // Title
-                let title = Paragraph::new("FileSyncHub")
-                    .style(Style::default().fg(Color::Cyan))
-                    .block(Block::default().borders(Borders::ALL));
-                f.render_widget(title, chunks[0]);
-
-                // Status messages
-                let messages: Vec<ListItem> = app
-                    .status_messages()
-                    .iter()
-                    .map(|m| ListItem::new(m.as_str()))
-                    .collect();
-                let messages = List::new(messages)
-                    .block(Block::default().title("Status").borders(Borders::ALL));
-                f.render_widget(messages, chunks[1]);
-
-                // Help text
-                let help = Paragraph::new("Press 'q' to quit")
-                    .style(Style::default().fg(Color::Gray))
-                    .block(Block::default().borders(Borders::ALL));
-                f.render_widget(help, chunks[2]);
+            let config = self.config.clone();
+            self.terminal.draw(move |f| {
+                Self::render_ui(f, &config);
             })?;
 
-            if event::poll(std::time::Duration::from_millis(100))? {
+            if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.code == KeyCode::Char('q') {
-                        break;
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
+                        _ => {}
                     }
                 }
             }
         }
-
-        Ok(())
     }
-}
 
-impl Drop for Tui {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
-        let _ = self.terminal.show_cursor();
+    fn render_ui(f: &mut Frame, config: &Config) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(
+                [
+                    Constraint::Length(3),
+                    Constraint::Min(0),
+                    Constraint::Length(3),
+                ]
+                .as_ref(),
+            )
+            .split(f.size());
+
+        // Title
+        let title = Paragraph::new("FileSyncHub")
+            .style(Style::default().fg(Color::Cyan))
+            .block(Block::default().borders(Borders::ALL));
+        f.render_widget(title, chunks[0]);
+
+        // Providers List
+        let providers: Vec<ListItem> = config
+            .providers
+            .iter()
+            .map(|p| {
+                let status = if p.enabled { "✓" } else { "✗" };
+                let content = Line::from(vec![
+                    Span::raw(format!("{} ", status)),
+                    Span::styled(
+                        &p.name,
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" - "),
+                    Span::raw(match p.credentials {
+                        crate::config::ProviderCredentials::GoogleDrive(_) => "Google Drive",
+                        crate::config::ProviderCredentials::OneDrive(_) => "OneDrive",
+                    }),
+                ]);
+                ListItem::new(content)
+            })
+            .collect();
+
+        let providers = List::new(providers)
+            .block(Block::default().title("Providers").borders(Borders::ALL))
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+            .highlight_symbol(">> ");
+        f.render_widget(providers, chunks[1]);
+
+        // Help
+        let help = Paragraph::new("Press 'q' to quit")
+            .style(Style::default().fg(Color::Gray))
+            .block(Block::default().borders(Borders::ALL));
+        f.render_widget(help, chunks[2]);
     }
 }

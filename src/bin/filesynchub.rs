@@ -1,77 +1,57 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use filesynchub::{Config, FileSyncHub};
-use std::path::PathBuf;
+use filesync::config::Config;
+use filesync::{SyncService, Tui};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Caminho para o arquivo de configuração
+    /// Path to the configuration file
     #[arg(short, long, default_value = "config.toml")]
-    config: PathBuf,
+    config: String,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Inicializa uma nova configuração
-    Init {
-        /// Diretório raiz para sincronização
+    /// Start the service in daemon mode
+    Daemon {
+        /// Path to the configuration file
         #[arg(short, long)]
-        root: PathBuf,
+        config: Option<String>,
     },
-    /// Inicia o serviço de sincronização
-    Start {
-        /// Executa em modo daemon
+
+    /// Start the service in TUI mode
+    Tui {
+        /// Path to the configuration file
         #[arg(short, long)]
-        daemon: bool,
+        config: Option<String>,
     },
-    /// Para o serviço de sincronização
-    Stop,
-    /// Força a sincronização de um arquivo ou diretório
-    Sync {
-        /// Caminho para sincronizar
-        path: PathBuf,
-    },
-    /// Mostra estatísticas do sistema
-    Stats,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Init { root } => {
-            println!("Inicializando configuração...");
-            let mut config = Config::new();
-            config.root_dir = root.clone();
-            config.save(cli.config.to_str().unwrap())?;
-            println!("Configuração inicializada com sucesso!");
+    let config_path = match &cli.command {
+        Some(Commands::Daemon { config }) => config.as_ref().unwrap_or(&cli.config),
+        Some(Commands::Tui { config }) => config.as_ref().unwrap_or(&cli.config),
+        None => &cli.config,
+    };
+
+    let config = Config::from_file(config_path).await?;
+
+    match cli.command {
+        Some(Commands::Daemon { .. }) => {
+            let service = SyncService::new(config).await?;
+            service.start().await?;
         }
-        Commands::Start { daemon: _ } => {
-            let config = Config::load(cli.config.to_str().unwrap())?;
-            let mut hub = FileSyncHub::new(config);
-            hub.start().await?;
-            println!("Serviço iniciado com sucesso!");
-        }
-        Commands::Stop => {
-            let config = Config::load(cli.config.to_str().unwrap())?;
-            let mut hub = FileSyncHub::new(config);
-            hub.stop().await?;
-            println!("Serviço parado com sucesso!");
-        }
-        Commands::Sync { path: _ } => {
-            let _config = Config::load(cli.config.to_str().unwrap())?;
-            // TODO: Implement sync for specific path
-            println!("Sincronização manual não implementada ainda.");
-        }
-        Commands::Stats => {
-            let _config = Config::load(cli.config.to_str().unwrap())?;
-            // TODO: Implement stats
-            println!("Estatísticas não implementadas ainda.");
+        Some(Commands::Tui { .. }) | None => {
+            let mut tui = Tui::new(config)?;
+            tui.run()?;
         }
     }
 
